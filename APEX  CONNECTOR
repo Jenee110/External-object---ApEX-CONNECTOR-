@@ -1,0 +1,136 @@
+global class PropertyDataSourceConnection extends DataSource.Connection {
+    
+    private static String BASE_URL = 'https://57d6-111-118-246-106.ngrok-free.app';
+    private static String PROPERTY_ENDPOINT = '/api/User_Activity_Logs_Temp?limit=15';
+    private static String PROPERTY_ENDPOINT_COPY = '/posts';
+
+    global PropertyDataSourceConnection(DataSource.ConnectionParams connectionParams) {}
+
+    /**
+     *   Defines the schema for the external system. 
+     *   Called when the administrator clicks “Validate and Sync”
+     *   in the user interface for the external data source.
+     **/
+    override global List<DataSource.Table> sync() {
+        List<DataSource.Table> tables = new List<DataSource.Table>();
+
+        // Defines columns for the table of Stack OverFlow posts
+        List<DataSource.Column> postColumns = new List<DataSource.Column>();
+        postColumns.add(DataSource.Column.text('Account_Type', 255));
+        postColumns.add(DataSource.Column.text('Description', 255));
+        postColumns.add(DataSource.Column.text('Id', 255)); 
+        postColumns.add(DataSource.Column.text('Operation_Result', 255));
+        postColumns.add(DataSource.Column.text('App_Type__c', 255)); 
+        
+        
+        postColumns.add(DataSource.Column.url('DisplayUrl'));
+        postColumns.add(DataSource.Column.text('ExternalId',255)); // Set ExternalId as required
+        
+        tables.add(DataSource.Table.get('User_Activity_Logs_Temp','User_Activity_Logs_Temp', postColumns));
+
+        return tables;
+    }
+
+    /**
+     *   Called to query and get results from the external
+     *   system for SOQL queries, list views, and detail pages
+     *   for an external object that’s associated with the
+     *   external data source.
+     *
+     *   The QueryContext argument represents the query to run
+     *   against a table in the external system.
+     *
+     *   Returns a list of rows as the query results.
+     **/
+    override global DataSource.TableResult query(DataSource.QueryContext context) {
+        String table = context.tableSelection.tableSelected;        
+
+        List<Map<String, Object>> rows = DataSource.QueryUtils.process(context, getRows(table));
+        system.debug('rows: ' + rows);
+        return DataSource.TableResult.get(context, rows);
+    }
+
+    /**
+     *   Helper method to parse the data.
+     *   The url argument is the URL of the external system.
+     *   Returns a list of rows from the external system.
+     **/
+    public List<Map<String, Object>> getRows(String table) {
+        
+        String url = BASE_URL;
+        if(table.equals('User_Activity_Logs_Temp')){
+            url += PROPERTY_ENDPOINT;
+        }
+        
+        HttpResponse response = makeGetCallout(url);
+        List<Object> dataList = (List<Object>) JSON.deserializeUntyped(response.getBody());
+        system.debug('dataList: ' + dataList);
+        List<Map<String,Object>> rows = new List<Map<String,Object>>();
+        for(Object data: dataList){
+            Map<String,Object> row = (Map<String,Object>) data;
+            row.put('ExternalId', generateUniqueExternalId()); // Generate a unique ExternalId
+            system.debug('row:' + row);
+            rows.add(populatePostRow(row));
+        }
+                
+        return rows;
+    }
+
+    /**
+     *   Helper method to generate a unique ExternalId for each row.
+     *   Returns a unique ExternalId value.
+     **/
+    private String generateUniqueExternalId() {
+        // Implement your logic to generate a unique ExternalId
+        // Example: return System.currentTimeMillis().format() + '-' + Math.round(Math.random() * 1000);
+        return ''; // Replace with your implementation
+    }
+
+    /**
+     *   Helper method to make the HTTP GET call.
+     *   The url argument is the URL of the external system.
+     *   Returns the response from the external system.
+     **/
+    public static HttpResponse makeGetCallout(String url) {
+
+        HttpRequest request = new HttpRequest();
+        request.setEndPoint(url);
+        request.setMethod('GET');
+        return (new Http()).send(request);
+    }
+    
+    private Map<String,Object> populateCopyRow (Map<String,Object> newRow){
+        Map<String,Object> row = new Map<String,Object>();
+        String id = string.valueOf(newRow.get('Google_File__ld'));
+        row.put('ExternalId', id);
+        
+        row.put('body', string.valueOf(newRow.get('body')));
+        row.put('userId', string.valueOf(newRow.get('userId')));
+        return row;
+    }
+    
+    private Map<String,Object> populatePostRow (Map<String,Object> newRow){
+        Map<String,Object> row = new Map<String,Object>();
+        String id = string.valueOf(newRow.get('Id'));
+        row.put('ExternalId', id);
+        
+        row.put('Account_Type', string.valueOf(newRow.get('Account_Type')));
+        row.put('Description', string.valueOf(newRow.get('Description')));
+        row.put('Operation_Result', string.valueOf(newRow.get('Operation_Result')));
+        row.put('App_Type__c', string.valueOf(newRow.get('App_Type__c')));
+ 
+        return row;
+    }
+    
+    override global List<DataSource.TableResult> search(DataSource.SearchContext context){
+        List<DataSource.TableResult> results = new List<DataSource.TableResult>();
+        
+        for(DataSource.TableSelection tableSelection: context.tableSelections){
+            results.add(DataSource.TableResult.get(tableSelection, getRows(tableSelection.tableSelected)));
+        }
+        
+        return results;
+    }
+    
+    
+}
